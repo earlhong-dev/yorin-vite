@@ -24,17 +24,10 @@ jobs:
           node-version: 20
       - name: Build site
         env:
-          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
-          SUPABASE_USE_FIREBASE_JWT: ${{ secrets.SUPABASE_USE_FIREBASE_JWT }}
-          MAX_UPLOAD_MB: ${{ secrets.MAX_UPLOAD_MB }}
-        run: npm run build
+          ENV_FILE: ${{ secrets.fbapikey }}
+        run: |
+          node -e "require('node:fs').writeFileSync('.env', process.env.ENV_FILE || '')"
+          npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
