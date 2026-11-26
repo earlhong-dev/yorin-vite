@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Yorin.vite — Online invitations</title>
+  <meta name="description"
+    content="Create or upload event invitations, organize them by guest group, and share each one with a private link." />
+  <meta name="theme-color" content="#fff9f4" />
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23c2415d'/%3E%3Ctext x='32' y='46' font-size='40' text-anchor='middle' fill='white' font-family='Georgia,serif'%3EY%3C/text%3E%3C/svg%3E" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;700&family=DM+Serif+Display&family=Dancing+Script:wght@500;700&family=Great+Vibes&family=Josefin+Sans:wght@300;400;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@300;400;600&family=Pacifico&family=Playfair+Display:wght@400;600;700&family=Poppins:wght@300;400;600&family=Quicksand:wght@400;600&family=Raleway:wght@300;400;600&display=swap" />
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- Generated from .env by `npm run config` / `npm run dev` / `npm run build`. Not committed. -->
+  <script src="js/env-config.js"></script>
+
+  <!-- One place to pin the Firebase SDK version. -->
+  <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
+          "firebase/auth": "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"
+        }
+      }
+    </script>
+  <script type="module" src="js/main.js"></script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+  <noscript>Yorin.vite needs JavaScript to run. Please enable it and reload.</noscript>
+</body>
+
+</html>

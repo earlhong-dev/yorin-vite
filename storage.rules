@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Yorin.vite — Cloud Storage security rules
+//
+// Files live at:  invitations/{ownerId}/{invitationId}/file-<32 hex chars>.<ext>
+//
+//   * Only the owner can upload, replace or delete a file.
+//   * Uploads must be a PDF or a common raster image, within the size limit.
+//     (SVG is intentionally NOT allowed — it can carry scripts.)
+//   * The owner can always read their files.
+//   * Anyone else can read a file ONLY while its invitation has sharing enabled
+//     (read from Firestore), and only if they know the path. The file name is random
+//     and is revealed solely through the secret share token, so there are no
+//     guessable or permanent public download URLs.
+//
+// If you change MAX_UPLOAD_MB in .env, change the 15 below to match.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner(ownerId) {
+      return request.auth != null && request.auth.uid == ownerId;
+    }
+
+    function validUpload() {
+      return request.resource.size > 0
+        && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/(jpeg|png|webp|gif|avif|bmp)');
+    }
+
+    function sharedPublicly(ownerId, invitationId) {
+      return firestore.get(/databases/(default)/documents/invitations/$(invitationId)).data.sharingEnabled == true
+        && firestore.get(/databases/(default)/documents/invitations/$(invitationId)).data.ownerId == ownerId;
+    }
+
+    match /invitations/{ownerId}/{invitationId}/{fileName} {
+      allow read: if isOwner(ownerId) || sharedPublicly(ownerId, invitationId);
+      allow create, update: if isOwner(ownerId)
+        && validUpload()
+        && fileName.matches('file-[0-9a-f]{32}\\.(pdf|jpg|png|webp|gif|avif|bmp)');
+      allow delete: if isOwner(ownerId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

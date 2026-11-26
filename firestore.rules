@@ -1,0 +1,183 @@
+rules_version = '2';
+
+// Yorin.vite — Cloud Firestore security rules
+//
+// Model
+//   users/{uid}               profile, readable/writable only by that user
+//   events/{eventId}          owned by one user
+//   categories/{categoryId}   belongs to ONE event (and its owner)
+//   invitations/{id}          belongs to one event + one category + one owner
+//   shares/{token}            one per shared invitation; the doc ID is the secret token
+//
+// Key properties
+//   * Every private document carries ownerId and is only readable by that owner.
+//   * ownerId / eventId can never be changed after creation.
+//   * An invitation can only point at an event and a category the caller owns,
+//     and the category must belong to the same event.
+//   * shares/{token} can be fetched ("get") by anyone who knows the token while
+//     it is enabled — but it can never be listed, so tokens cannot be discovered.
+//   * Disabling or deleting a share takes effect on the very next request.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(ownerId) {
+      return signedIn() && request.auth.uid == ownerId;
+    }
+
+    function cleanStr(v, minLen, maxLen) {
+      return v is string && v.size() >= minLen && v.size() <= maxLen;
+    }
+
+    function docPath(collectionName, id) {
+      return /databases/$(database)/documents/$(collectionName)/$(id);
+    }
+
+    // ---------------------------------------------------------------- users
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(
+          ['displayName', 'email', 'photoURL', 'createdAt', 'lastLoginAt']);
+      allow delete: if false;
+    }
+
+    // --------------------------------------------------------------- events
+    function validEvent(d) {
+      return d.keys().hasOnly(
+          ['ownerId', 'name', 'type', 'customType', 'date', 'location', 'createdAt', 'updatedAt'])
+        && cleanStr(d.name, 1, 100)
+        && d.type in ['Wedding', 'Birthday', 'Graduation', 'Anniversary', 'Corporate Event', 'Other', 'Custom']
+        && d.customType is string && d.customType.size() <= 40
+        && (d.type != 'Custom' || d.customType.size() >= 1)
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && cleanStr(d.location, 1, 200);
+    }
+
+    match /events/{eventId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isOwner(request.resource.data.ownerId)
+        && validEvent(request.resource.data);
+      allow update: if isOwner(resource.data.ownerId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && validEvent(request.resource.data);
+      allow delete: if isOwner(resource.data.ownerId);
+    }
+
+    // ----------------------------------------------------------- categories
+    function validCategory(d) {
+      return d.keys().hasOnly(
+          ['ownerId', 'eventId', 'name', 'nameLower', 'order', 'isDefault', 'createdAt'])
+        && cleanStr(d.name, 1, 40)
+        && cleanStr(d.nameLower, 1, 40)
+        && cleanStr(d.eventId, 1, 128)
+        && d.order is number
+        && d.isDefault is bool;
+    }
+
+    match /categories/{categoryId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      // getAfter() lets default categories be created in the same batch as their event.
+      allow create: if isOwner(request.resource.data.ownerId)
+        && validCategory(request.resource.data)
+        && getAfter(docPath('events', request.resource.data.eventId)).data.ownerId == request.auth.uid;
+      allow update: if isOwner(resource.data.ownerId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.eventId == resource.data.eventId
+        && validCategory(request.resource.data);
+      allow delete: if isOwner(resource.data.ownerId);
+    }
+
+    // ---------------------------------------------------------- invitations
+    function validInvitation(d, invitationId) {
+      return d.keys().hasAll(
+          ['ownerId', 'eventId', 'categoryId', 'name', 'creationType',
+           'sharingEnabled', 'shareToken', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(
+          ['ownerId', 'eventId', 'categoryId', 'name', 'creationType',
+           'sharingEnabled', 'shareToken', 'createdAt', 'updatedAt',
+           'design', 'file', 'files', 'viewMode', 'thumbnail'])
+        && cleanStr(d.name, 1, 80)
+        && cleanStr(d.eventId, 1, 128)
+        && cleanStr(d.categoryId, 1, 128)
+        && d.sharingEnabled is bool
+        && (d.shareToken == null || (d.shareToken is string && d.shareToken.size() >= 32 && d.shareToken.size() <= 128))
+        && (
+          (d.creationType == 'created' && d.design is map && !('file' in d) && !('files' in d))
+          ||
+          (d.creationType == 'uploaded' && (
+            (d.files is list && d.files.size() >= 1 && d.files.size() <= 10
+              && d.files[0] is map && d.files[0].path is string
+              && d.files[0].path.matches('invitations/' + d.ownerId + '/' + invitationId + '/.*'))
+            ||
+            (d.file is map && d.file.path is string
+              && d.file.path.matches('invitations/' + d.ownerId + '/' + invitationId + '/.*'))
+          ))
+        )
+        && (!('viewMode' in d) || d.viewMode in ['vertical', 'horizontal', 'flip'])
+        && (!('thumbnail' in d) || d.thumbnail == null
+            || (d.thumbnail is string && d.thumbnail.size() < 150000));
+    }
+
+    function categoryMatchesEvent(d) {
+      return get(docPath('categories', d.categoryId)).data.eventId == d.eventId
+        && get(docPath('categories', d.categoryId)).data.ownerId == request.auth.uid;
+    }
+
+    match /invitations/{invitationId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isOwner(request.resource.data.ownerId)
+        && validInvitation(request.resource.data, invitationId)
+        && get(docPath('events', request.resource.data.eventId)).data.ownerId == request.auth.uid
+        && categoryMatchesEvent(request.resource.data);
+      allow update: if isOwner(resource.data.ownerId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.eventId == resource.data.eventId
+        && request.resource.data.creationType == resource.data.creationType
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validInvitation(request.resource.data, invitationId)
+        && categoryMatchesEvent(request.resource.data);
+      allow delete: if isOwner(resource.data.ownerId);
+    }
+
+    // --------------------------------------------------------------- shares
+    // The document ID is a 192-bit random token. Knowing it is the permission.
+    function validShare(d) {
+      return d.keys().hasOnly(
+          ['invitationId', 'ownerId', 'enabled', 'kind', 'name', 'design', 'file', 'files', 'viewMode', 'createdAt', 'updatedAt'])
+        && (!('viewMode' in d) || d.viewMode in ['vertical', 'horizontal', 'flip'])
+        && d.enabled is bool
+        && d.kind in ['created', 'uploaded']
+        && cleanStr(d.name, 1, 80)
+        && cleanStr(d.invitationId, 1, 128)
+        && (('design' in d && d.design is map)
+          || ('file' in d && d.file is map)
+          || ('files' in d && d.files is list && d.files.size() >= 1 && d.files.size() <= 10));
+    }
+
+    match /shares/{token} {
+      // "get" only. There is deliberately no "list" so tokens can't be enumerated.
+      allow get: if resource.data.enabled == true
+        || (signedIn() && resource.data.ownerId == request.auth.uid);
+      allow list: if false;
+      allow create: if isOwner(request.resource.data.ownerId)
+        && token.size() >= 32
+        && validShare(request.resource.data)
+        && get(docPath('invitations', request.resource.data.invitationId)).data.ownerId == request.auth.uid;
+      allow update: if isOwner(resource.data.ownerId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.invitationId == resource.data.invitationId
+        && validShare(request.resource.data);
+      allow delete: if resource == null || isOwner(resource.data.ownerId);
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.firebase/
+*.log
+
+# Local configuration — never commit
+.env
+.env.*
+.env.example
+js/env-config.js
+FIREBASE_SETUP.md
+SUPABASE_SETUP.md
